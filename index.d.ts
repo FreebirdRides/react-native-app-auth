@@ -7,20 +7,20 @@ export interface ServiceConfiguration {
 
 export type BaseAuthConfiguration =
   | {
-      clientId: string;
-      issuer?: string;
-      serviceConfiguration: ServiceConfiguration;
-    }
+    clientId: string;
+    issuer?: string;
+    serviceConfiguration: ServiceConfiguration;
+  }
   | {
-      clientId: string;
-      issuer: string;
-      serviceConfiguration?: ServiceConfiguration;
-    };
+    clientId: string;
+    issuer: string;
+    serviceConfiguration?: ServiceConfiguration;
+  };
 
 interface BuiltInParameters {
-  display?: "page" | "popup" | "touch" | "wap";
+  display?: 'page' | 'popup' | 'touch' | 'wap';
   login_prompt?: string;
-  prompt?: "consent" |"login" | "none" | "select_account";
+  prompt?: 'consent' | 'login' | 'none' | 'select_account';
 }
 
 export type AuthConfiguration = BaseAuthConfiguration & {
@@ -48,6 +48,8 @@ export interface RevokeConfiguration {
 export interface RefreshConfiguration {
   refreshToken: string;
 }
+
+export function prefetchOnce(config: AuthConfiguration): Promise<void>;
 
 export function authorize(config: AuthConfiguration): Promise<AuthorizeResult>;
 

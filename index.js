@@ -6,21 +6,47 @@ const { RNAppAuth } = NativeModules;
 const validateIssuerOrServiceConfigurationEndpoints = (issuer, serviceConfiguration) =>
   invariant(
     typeof issuer === 'string' ||
-      (serviceConfiguration &&
-        typeof serviceConfiguration.authorizationEndpoint === 'string' &&
-        typeof serviceConfiguration.tokenEndpoint === 'string'),
+    (serviceConfiguration &&
+      typeof serviceConfiguration.authorizationEndpoint === 'string' &&
+      typeof serviceConfiguration.tokenEndpoint === 'string'),
     'Config error: you must provide either an issuer or a service endpoints'
   );
 const validateIssuerOrServiceConfigurationRevocationEndpoint = (issuer, serviceConfiguration) =>
   invariant(
     typeof issuer === 'string' ||
-      (serviceConfiguration && typeof serviceConfiguration.revocationEndpoint === 'string'),
+    (serviceConfiguration && typeof serviceConfiguration.revocationEndpoint === 'string'),
     'Config error: you must provide either an issuer or a revocation endpoint'
   );
 const validateClientId = clientId =>
   invariant(typeof clientId === 'string', 'Config error: clientId must be a string');
 const validateRedirectUrl = redirectUrl =>
   invariant(typeof redirectUrl === 'string', 'Config error: redirectUrl must be a string');
+
+export const prefetchOnce = async ({
+  issuer,
+  redirectUrl,
+  clientId,
+  scopes,
+  serviceConfiguration,
+  dangerouslyAllowInsecureHttpRequests = false,
+}) => {
+  if (Platform.OS === 'android') {
+    validateIssuerOrServiceConfigurationEndpoints(issuer, serviceConfiguration);
+    validateClientId(clientId);
+    validateRedirectUrl(redirectUrl);
+
+    const nativeMethodArguments = [
+      issuer,
+      redirectUrl,
+      clientId,
+      scopes,
+      serviceConfiguration,
+      dangerouslyAllowInsecureHttpRequests,
+    ];
+
+    RNAppAuth.prefetchOnce(...nativeMethodArguments);
+  }
+};
 
 export const authorize = ({
   issuer,

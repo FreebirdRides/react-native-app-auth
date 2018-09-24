@@ -40,6 +40,8 @@ import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
 
 public class RNAppAuthModule extends ReactContextBaseJavaModule implements ActivityEventListener {
 
@@ -48,11 +50,67 @@ public class RNAppAuthModule extends ReactContextBaseJavaModule implements Activ
     private Boolean dangerouslyAllowInsecureHttpRequests;
     private Map<String, String> additionalParametersMap;
     private String clientSecret;
+    private final AtomicReference<AuthorizationServiceConfiguration> mServiceConfiguration = new AtomicReference<>();
+    private boolean isPrefetched = false;
 
     public RNAppAuthModule(ReactApplicationContext reactContext) {
         super(reactContext);
         this.reactContext = reactContext;
         reactContext.addActivityEventListener(this);
+    }
+
+    @ReactMethod
+    public void prefetchOnce(
+        final String issuer,
+        final String redirectUrl,
+        final String clientId,
+        final ReadableArray scopes,
+        final ReadableMap serviceConfiguration,
+        final Boolean dangerouslyAllowInsecureHttpRequests,
+        final Promise promise
+    ) {
+        final ConnectionBuilder builder = createConnectionBuilder(dangerouslyAllowInsecureHttpRequests);
+        final CountDownLatch fetchConfigurationLatch = new CountDownLatch(1);
+
+        if(!isPrefetched) {
+            if (serviceConfiguration != null && mServiceConfiguration.get() == null) {
+                try {
+                    mServiceConfiguration.set(createAuthorizationServiceConfiguration(serviceConfiguration));
+                    isPrefetched = true;
+                    fetchConfigurationLatch.countDown();
+                } catch (Exception e) {
+                    promise.reject("RNAppAuth Error", "Failed to convert serviceConfiguration", e);
+                }
+            } else if (mServiceConfiguration.get() == null) {
+                final Uri issuerUri = Uri.parse(issuer);
+                AuthorizationServiceConfiguration.fetchFromUrl(
+                        buildConfigurationUriFromIssuer(issuerUri),
+                        new AuthorizationServiceConfiguration.RetrieveConfigurationCallback() {
+                            public void onFetchConfigurationCompleted(
+                                    @Nullable AuthorizationServiceConfiguration fetchedConfiguration,
+                                    @Nullable AuthorizationException ex) {
+                                if (ex != null) {
+                                    promise.reject("RNAppAuth Error", "Failed to fetch configuration", ex);
+                                    return;
+                                }
+                                mServiceConfiguration.set(fetchedConfiguration);
+                                isPrefetched = true;
+                                fetchConfigurationLatch.countDown();
+                            }
+                        },
+                        builder
+                );
+            }
+        } else {
+            fetchConfigurationLatch.countDown();
+        }
+        
+        try {
+            fetchConfigurationLatch.await();
+            promise.resolve(isPrefetched);
+        } catch (Exception e) {
+            promise.reject("RNAppAuth Error", "Failed to await fetch configuration", e);
+        }
     }
 
     @ReactMethod
@@ -82,10 +140,11 @@ public class RNAppAuthModule extends ReactContextBaseJavaModule implements Activ
         this.clientSecret = clientSecret;
 
         // when serviceConfiguration is provided, we don't need to hit up the OpenID well-known id endpoint
-        if (serviceConfiguration != null) {
+        if (serviceConfiguration != null || mServiceConfiguration.get() != null) {
             try {
+                final AuthorizationServiceConfiguration serviceConfig = mServiceConfiguration.get() != null ? mServiceConfiguration.get() : createAuthorizationServiceConfiguration(serviceConfiguration);
                 authorizeWithConfiguration(
-                        createAuthorizationServiceConfiguration(serviceConfiguration),
+                        serviceConfig,
                         appAuthConfiguration,
                         clientId,
                         scopes,
@@ -108,6 +167,8 @@ public class RNAppAuthModule extends ReactContextBaseJavaModule implements Activ
                                 return;
                             }
 
+                            mServiceConfiguration.set(fetchedConfiguration);
+                            
                             authorizeWithConfiguration(
                                     fetchedConfiguration,
                                     appAuthConfiguration,
@@ -153,10 +214,11 @@ public class RNAppAuthModule extends ReactContextBaseJavaModule implements Activ
         this.additionalParametersMap = additionalParametersMap;
 
         // when serviceConfiguration is provided, we don't need to hit up the OpenID well-known id endpoint
-        if (serviceConfiguration != null) {
+        if (serviceConfiguration != null || mServiceConfiguration.get() != null) {
             try {
+                final AuthorizationServiceConfiguration serviceConfig = mServiceConfiguration.get() != null ? mServiceConfiguration.get() : createAuthorizationServiceConfiguration(serviceConfiguration);
                 refreshWithConfiguration(
-                        createAuthorizationServiceConfiguration(serviceConfiguration),
+                        serviceConfig,
                         appAuthConfiguration,
                         refreshToken,
                         clientId,
@@ -171,7 +233,6 @@ public class RNAppAuthModule extends ReactContextBaseJavaModule implements Activ
             }
         } else {
             final Uri issuerUri = Uri.parse(issuer);
-            // @TODO: Refactor to avoid hitting IDP endpoint on refresh, reuse fetchedConfiguration if possible.
             AuthorizationServiceConfiguration.fetchFromUrl(
                     buildConfigurationUriFromIssuer(issuerUri),
                     new AuthorizationServiceConfiguration.RetrieveConfigurationCallback() {
@@ -182,6 +243,8 @@ public class RNAppAuthModule extends ReactContextBaseJavaModule implements Activ
                                 promise.reject("RNAppAuth Error", "Failed to fetch configuration", ex);
                                 return;
                             }
+
+                            mServiceConfiguration.set(fetchedConfiguration);
 
                             refreshWithConfiguration(
                                     fetchedConfiguration,
